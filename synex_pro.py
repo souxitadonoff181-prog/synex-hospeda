@@ -340,4 +340,4 @@ def chaves():
                 </select>
                 <label>Limite de usos:</label>
                 <input type="number" name="limite_usos" value="1" min="1">
-                <label
+                <label><input type="checkbox" name="usar_hwid"> Bloquear por HWID
