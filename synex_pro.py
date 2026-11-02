@@ -1,18 +1,20 @@
 from flask import Flask, request, redirect, url_for, session, jsonify
-import os, json, secrets, hashlib, threading, requests
+import os, json, secrets, hashlib, threading
 from datetime import datetime
 import discord
 from discord.ext import commands
+import requests
 
 app = Flask(__name__)
-app.secret_key = "synex_final_2026"
-ARQUIVO_DADOS = "dados.json"
+app.secret_key = "synex_admin_2026"
+ARQUIVO_DADOS = "configuracoes.json"
 DOMINIO = "https://synex-hospeda.onrender.com"
 
 # ==============================================
 # BANCO DE DADOS
 # ==============================================
 DADOS_INICIAIS = {
+    "config": {"token_bot": None},
     "usuarios": {"synex": {"senha_hash": hashlib.sha256("123".encode()).hexdigest(), "nivel": "admin"}},
     "chaves": {},
     "vendas": []
@@ -50,46 +52,47 @@ def criar_chave(produto, dias=30, comprador_id=None, comprador_nome=None):
     return chave
 
 # ==============================================
-# 🔴 COLOQUE SEU TOKEN AQUI
-# ==============================================
-SEU_TOKEN_AQUI = "COLE_SEU_TOKEN_DO_BOT_AQUI"
-
-# ==============================================
-# BOT DISCORD — RODA JUNTO
+# BOT — LIGA PELA INTERFACE
 # ==============================================
 bot_rodando = False
+bot_thread = None
 
-def iniciar_bot():
-    global bot_rodando
-    if bot_rodando or not SEU_TOKEN_AQUI or "COLE" in SEU_TOKEN_AQUI:
-        return
-    bot_rodando = True
+def ligar_bot_com_token(token):
+    global bot_rodando, bot_thread
+    if bot_rodando: return
     
-    intents = discord.Intents.default()
-    intents.message_content = True
-    bot = commands.Bot(command_prefix="!", intents=intents)
+    def rodar():
+        global bot_rodando
+        try:
+            intents = discord.Intents.default()
+            intents.message_content = True
+            bot = commands.Bot(command_prefix="!", intents=intents)
+            
+            @bot.event
+            async def on_ready():
+                global bot_rodando
+                bot_rodando = True
+                print(f"✅ BOT LIGADO: {bot.user}")
+            
+            @bot.command()
+            async def comprar(ctx, produto: str, dias: int = 30):
+                resp = requests.post(f"{DOMINIO}/api/gerar-chave", json={
+                    "produto": produto, "dias": dias,
+                    "comprador_id": str(ctx.author.id), "comprador_nome": str(ctx.author)
+                })
+                dados = resp.json()
+                if dados["sucesso"]:
+                    await ctx.send(f"✅ Chave: `{dados['chave']}`\n📦 Produto: {dados['produto']}\n⏳ Validade: {dados['dias']} dias")
+                else:
+                    await ctx.send("❌ Erro ao gerar chave")
+            
+            bot.run(token)
+        except Exception as e:
+            print(f"Erro no bot: {e}")
+            bot_rodando = False
     
-    @bot.event
-    async def on_ready():
-        print(f"✅ BOT ONLINE: {bot.user}")
-    
-    @bot.command()
-    async def comprar(ctx, produto: str, dias: int = 30):
-        resp = requests.post(DOMINIO + "/api/gerar-chave", json={
-            "produto": produto, "dias": dias,
-            "comprador_id": str(ctx.author.id), "comprador_nome": str(ctx.author)
-        })
-        dados = resp.json()
-        if dados["sucesso"]:
-            await ctx.send(f"✅ Chave: `{dados['chave']}`\n📦 Produto: {dados['produto']}\n⏳ Validade: {dados['dias']} dias")
-        else:
-            await ctx.send("❌ Erro ao gerar chave")
-    
-    bot.run(SEU_TOKEN_AQUI)
-
-# Inicia o bot em segundo plano
-if SEU_TOKEN_AQUI and "COLE" not in SEU_TOKEN_AQUI:
-    threading.Thread(target=iniciar_bot, daemon=True).start()
+    bot_thread = threading.Thread(target=rodar, daemon=True)
+    bot_thread.start()
 
 # ==============================================
 # ESTILO
@@ -125,7 +128,12 @@ def cabecalho(): return """<!DOCTYPE html><html><head><meta charset=UTF-8><style
 def rodape(): return "</body></html>"
 
 def menu_esquerdo(aba):
-    itens = [("api","📦 Entrega API","/api"),("bot","🟢 Bot Online","/bot"),("uptime","🔄 UptimeRobot","/uptime"),("vendas","📋 Vendas","/vendas")]
+    itens = [
+        ("api","📦 Entrega API","/api"),
+        ("bot","🟢 Bot Online","/bot"),
+        ("uptime","🔄 UptimeRobot","/uptime"),
+        ("vendas","📋 Vendas","/vendas")
+    ]
     html = '<div class="menu"><h1>SYNEX</h1>'
     for a,t,l in itens: html += f'<a href="{l}" class="{"ativo" if a==aba else ""}">{t}</a>'
     html += '<a href="/sair" class="sair">🚪 Sair</a></div><div class="conteudo">'
@@ -143,28 +151,59 @@ def login():
         if verificar_senha(request.form["usuario"], request.form["senha"]):
             session["usuario"] = request.form["usuario"]
             return redirect("/bot")
-        return "<script>alert('Erro no login');history.back()</script>"
-    return cabecalho()+"""<div class="login card"><h2 style="text-align:center">🔐 Entrar</h2><form method=POST><label>Usuário</label><input name=usuario required><label>Senha</label><input type=password name=senha required><button class="btn-roxo" style="width:100%;margin-top:10px">Entrar</button></form><p style="text-align:center;margin-top:20px;color:#8888aa">synex / 123</p></div>"""+rodape()
+        return "<script>alert('❌ Usuário ou senha incorretos');history.back()</script>"
+    return cabecalho()+"""
+    <div class="login card">
+        <h2 style="text-align:center">🔐 Área do Dono</h2>
+        <form method=POST>
+            <label>Usuário</label>
+            <input name=usuario required>
+            <label>Senha</label>
+            <input type=password name=senha required>
+            <button class="btn-roxo" style="width:100%;margin-top:10px">Entrar</button>
+        </form>
+        <p style="text-align:center;margin-top:20px;color:#8888aa">Apenas o dono tem acesso</p>
+    </div>"""+rodape()
 
 @app.route("/sair")
 def sair(): session.clear(); return redirect("/login")
 @app.route("/")
 def inicio(): return redirect("/login")
 
-@app.route("/bot")
+# PÁGINA DO BOT — SÓ VOCÊ ACESSA
+@app.route("/bot", methods=["GET","POST"])
 def pagina_bot():
     if "usuario" not in session: return redirect("/login")
-    status = '<span class="status-on">🟢 LIGADO</span>' if bot_rodando else '<span class="status-off">🔴 DESLIGADO — Coloque seu token no código</span>'
+    
+    if request.method=="POST":
+        token = request.form.get("token","").strip()
+        if token:
+            DADOS["config"]["token_bot"] = token
+            salvar_dados()
+            ligar_bot_com_token(token)
+            mensagem = '<div class="sucesso">✅ Token salvo! O bot está ligando... Atualize em instantes!</div>'
+        else:
+            mensagem = '<div class="aviso">⚠️ Digite o token</div>'
+    else:
+        mensagem = ""
+    
+    status = '<span class="status-on">🟢 LIGADO E FUNCIONANDO</span>' if bot_rodando else '<span class="status-off">🔴 DESLIGADO — Coloque o token abaixo</span>'
+    token_mascarado = DADOS["config"].get("token_bot", "")
+    if token_mascarado and len(token_mascarado) > 10:
+        token_mascarado = token_mascarado[:8] + "••••••••••••••••" + token_mascarado[-4:]
+    
     return cabecalho()+menu_esquerdo("bot")+f"""
-    <h2>🟢 Bot Online — {status}</h2>
+    <h2>🟢 Controle do Bot — {status}</h2>
     <div class="card">
-        <h3>Como ligar o bot</h3>
-        <div class="sucesso">
-            1. Edite o código do site<br>
-            2. Troque <code>COLE_SEU_TOKEN_DO_BOT_AQUI</code> pelo token real do seu bot<br>
-            3. Salve → o bot liga sozinho em instantes ✅
-        </div>
+        <h3>Coloque o Token do Discord aqui</h3>
+        <form method=POST>
+            <label>Token do Bot</label>
+            <input type=password name=token placeholder="Cole seu token aqui..." value="{token_mascarado}">
+            <button class="btn-roxo">💾 Salvar e Ligar Bot</button>
+        </form>
+        {mensagem}
         <div class="aviso">
+            🔐 Apenas você (dono) tem acesso a essa página<br>
             Pegar token: discord.com/developers → Bot → Reset Token<br>
             Ative as 3 opções em Privileged Gateway Intents
         </div>
@@ -179,7 +218,22 @@ def pagina_api():
     <div class="card">
         <pre>POST {DOMINIO}/api/gerar-chave
 Content-Type: application/json
-{{"produto":"Nome","dias":30,"comprador_id":"ID","comprador_nome":"Nome"}}</pre>
+{{
+  "produto": "Nome do Produto",
+  "dias": 30,
+  "comprador_id": "ID do Cliente",
+  "comprador_nome": "Nome do Cliente"
+}}
+
+Resposta:
+{{
+  "sucesso": true,
+  "chave": "SYNEX-XXXX-XXXX-XXXX",
+  "produto": "Nome",
+  "dias": 30,
+  "comprador_id": "123",
+  "comprador_nome": "Cliente"
+}}</pre>
         <button class="btn-verde" onclick="navigator.clipboard.writeText('{DOMINIO}/api/gerar-chave')">📋 Copiar URL</button>
     </div>
     </div>"""+rodape()
@@ -188,16 +242,20 @@ Content-Type: application/json
 def api_gerar():
     d = request.json
     chave = criar_chave(d.get("produto"), int(d.get("dias",30)), d.get("comprador_id"), d.get("comprador_nome"))
-    return jsonify({"sucesso":True,"chave":chave,"produto":d.get("produto"),"dias":d.get("dias"),"comprador_id":d.get("comprador_id"),"comprador_nome":d.get("comprador_nome")})
+    return jsonify({
+        "sucesso": True, "chave": chave,
+        "produto": d.get("produto"), "dias": d.get("dias"),
+        "comprador_id": d.get("comprador_id"), "comprador_nome": d.get("comprador_nome")
+    })
 
 @app.route("/uptime")
 def pagina_uptime():
     if "usuario" not in session: return redirect("/login")
     return cabecalho()+menu_esquerdo("uptime")+f"""
-    <h2>🔄 UptimeRobot — 24h</h2>
+    <h2>🔄 UptimeRobot — 24h Online</h2>
     <div class="card">
         <input value="{DOMINIO}/ping" readonly>
-        <button class="btn-verde" onclick="navigator.clipboard.writeText('{DOMINIO}/ping')">📋 Copiar</button>
+        <button class="btn-verde" onclick="navigator.clipboard.writeText('{DOMINIO}/ping')">📋 Copiar URL</button>
         <div class="aviso">
             1. uptimerobot.com → conta grátis<br>
             2. New Monitor → HTTP(s)<br>
@@ -212,9 +270,18 @@ def pagina_vendas():
     itens = list(reversed(DADOS["vendas"][-30:]))
     linhas = "".join(f"<tr><td>{v.get('produto','-')}</td><td><code>{v.get('chave','-')}</code></td><td>{v.get('comprador_nome','-')}</td><td>{v.get('dias','-')} dias</td></tr>" for v in itens)
     return cabecalho()+menu_esquerdo("vendas")+f"""
-    <h2>📋 Histórico — {len(DADOS['vendas'])} chaves</h2>
-    <div class="card"><table><tr><th>Produto</th><th>Chave</th><th>Comprador</th><th>Validade</th></tr>{linhas}</table></div>
+    <h2>📋 Histórico de Vendas — {len(DADOS['vendas'])} chaves</h2>
+    <div class="card">
+        <table>
+            <tr><th>Produto</th><th>Chave</th><th>Comprador</th><th>Validade</th></tr>
+            {linhas}
+        </table>
+    </div>
     </div>"""+rodape()
 
 if __name__ == "__main__":
+    # Se já tiver token salvo, liga o bot automaticamente
+    token_salvo = DADOS["config"].get("token_bot")
+    if token_salvo:
+        threading.Thread(target=ligar_bot_com_token, args=(token_salvo,), daemon=True).start()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
