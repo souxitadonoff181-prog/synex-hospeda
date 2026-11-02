@@ -248,6 +248,4 @@ def login():
     if request.method == "POST":
         if verificar_senha(request.form["usuario"], request.form["senha"]):
             session["usuario"] = request.form["usuario"]
-            return redirect("/")
-        return f"<script>alert('{L('erro_login')}');window.location.href='/login'</script>"
-   
+            return redirect
