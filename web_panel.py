@@ -17,11 +17,17 @@ bot_lock = threading.Lock()
 
 # ========== PEGAR TOKEN ==========
 def get_token():
-    if not ENV_FILE.exists():
-        return None
-    text = ENV_FILE.read_text(encoding="utf-8")
-    match = re.search(r"DISCORD_TOKEN\s*=\s*([^\n]+)", text)
-    return match.group(1).strip() if match else None
+    # Primeiro tenta pegar direto do Render/ambiente
+    token = os.getenv("DISCORD_TOKEN")
+    if token:
+        return token.strip()
+    # Se não tiver, tenta ler do arquivo .env
+    if ENV_FILE.exists():
+        text = ENV_FILE.read_text(encoding="utf-8")
+        match = re.search(r"DISCORD_TOKEN\s*=\s*([^\n]+)", text)
+        if match:
+            return match.group(1).strip()
+    return None
 
 # ========== VERIFICAR BOT ==========
 def verificar_bot():
