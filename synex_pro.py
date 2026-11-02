@@ -275,4 +275,6 @@ class TicketActionSelect(discord.ui.Select):
             await interaction.response.send_modal(MemberModal(action == "add"))
         elif action == "invalidate":
             new_val = "0" if topic_value(channel, "invalid") == "1" else "1"
-            await channel.edit(t
+            await channel.edit(topic=update_topic(channel, invalid=new_val))
+            await interaction.response.send_message(
+                "🧾 Marcado como sem pagamento." if new_val == "1" else "🧾 Mar
