@@ -25,7 +25,8 @@ def carregar_dados():
         with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
             dados = json.load(f)
             for k in DADOS_INICIAIS:
-                if k not in dados: dados[k] = DADOS_INICIAIS[k]
+                if k not in dados:
+                    dados[k] = DADOS_INICIAIS[k]
             return dados
     return DADOS_INICIAIS.copy()
 
@@ -35,15 +36,23 @@ def salvar_dados():
 
 DADOS = carregar_dados()
 
-def hash_senha(s): return hashlib.sha256(s.encode()).hexdigest()
-def verificar_senha(u, s): return u in DADOS["usuarios"] and DADOS["usuarios"][u]["senha_hash"] == hash_senha(s)
+def hash_senha(s):
+    return hashlib.sha256(s.encode()).hexdigest()
+
+def verificar_senha(u, s):
+    return u in DADOS["usuarios"] and DADOS["usuarios"][u]["senha_hash"] == hash_senha(s)
 
 def criar_chave_sistema(nome, dias=30, comprador_id=None, origem="painel"):
     chave = f"SYNEX-{secrets.token_hex(3).upper()}-{secrets.token_hex(3).upper()}-{secrets.token_hex(3).upper()}"
     DADOS["chaves"][chave] = {
-        "id": str(uuid.uuid4())[:8], "nome": nome, "chave": chave, "dias": dias,
+        "id": str(uuid.uuid4())[:8],
+        "nome": nome,
+        "chave": chave,
+        "dias": dias,
         "expira_em": (datetime.now() + timedelta(days=dias)).isoformat(),
-        "origem": origem, "status": "ativa", "criada_em": datetime.now().isoformat(),
+        "origem": origem,
+        "status": "ativa",
+        "criada_em": datetime.now().isoformat(),
         "comprador_id": str(comprador_id) if comprador_id else None
     }
     salvar_dados()
@@ -56,42 +65,50 @@ T = {
         "sair": "🚪 Sair", "bemvindo": "Bem-vindo", "total_chaves": "Total de Chaves",
         "ativas": "Ativas", "vs_geradas": "Pelo VS", "ow_geradas": "Owlivery",
         "criar_chave": "➕ Criar Nova Chave", "nome_produto": "Nome do Produto",
-        "validade_dias": "Validade (dias)", "criar": "✅ Criar Chave", "lista_chaves": "Lista de Chaves",
-        "nenhuma_chave": "Nenhuma chave criada ainda", "nome": "Nome", "chave": "Chave",
-        "origem": "Origem", "status": "Status", "site": "Site", "vs_origem": "Visual Studio",
-        "ow_origem": "Owlivery", "ativa": "Ativa", "inativa": "Inativa",
+        "validade_dias": "Validade (dias)", "criar": "✅ Criar Chave",
+        "lista_chaves": "Lista de Chaves", "nenhuma_chave": "Nenhuma chave criada ainda",
+        "nome": "Nome", "chave": "Chave", "origem": "Origem", "status": "Status",
+        "site": "Site", "vs_origem": "Visual Studio", "ow_origem": "Owlivery",
+        "ativa": "Ativa", "inativa": "Inativa",
         "vs_titulo": "Gerador de Código — Visual Studio C#",
         "vs_desc": "Gere seu código personalizado no formato KeyAuthApp",
         "seu_nome_app": "Nome da Aplicação", "seu_owner_id": "Seu Owner ID",
         "versao": "Versão", "gerar_codigo": "🔄 Gerar Código", "copiar": "📋 Copiar Código",
-        "instrucoes_uso": "Instruções de Uso", "passo1": "1. Cole no seu projeto do Visual Studio",
+        "instrucoes_uso": "Instruções de Uso",
+        "passo1": "1. Cole no seu projeto do Visual Studio",
         "passo2": "2. Instale o pacote: Install-Package Newtonsoft.Json",
         "passo3": "3. Use KeyAuthApp.Login(\"usuario\", \"senha\") para conectar",
         "passo4": "4. Crie chaves: KeyAuthApp.CriarChave(\"Nome\", 30)",
         "gerador_bots": "🤖 Gerador de Bots Discord", "estilo_bot": "Estilo do Bot",
         "bot_entrega": "Bot de Entrega Automática", "bot_comandos": "Bot com Comandos",
         "bot_personalizado": "Personalizado", "nome_bot": "Nome do Bot",
-        "gerar_bot": "🔄 Gerar Código do Bot", "token_aviso": "Coloque seu Token no lugar indicado",
-        "uptime_titulo": "🔄 Manter Bot 24h Online", "uptime_desc": "Use UptimeRobot para manter acordado",
-        "url_monitorar": "URL para monitorar", "copiar_url": "Copiar URL", "passos_uptime": "Passos no UptimeRobot",
+        "gerar_bot": "🔄 Gerar Código do Bot",
+        "token_aviso": "Coloque seu Token no lugar indicado",
+        "uptime_titulo": "🔄 Manter Bot 24h Online",
+        "uptime_desc": "Use UptimeRobot para manter acordado",
+        "url_monitorar": "URL para monitorar", "copiar_url": "Copiar URL",
+        "passos_uptime": "Passos no UptimeRobot",
         "passos_uptime1": "1. Acesse UptimeRobot.com → conta grátis",
         "passos_uptime2": "2. Add New Monitor → tipo HTTP(s)",
         "passos_uptime3": "3. Cole a URL → Intervalo: 5 min",
         "passos_uptime4": "4. Salve → ✅ Bot online 24h!",
         "criar_usuario": "➕ Criar Novo Usuário", "nome_usuario": "Nome de Usuário",
         "senha": "Senha", "confirmar_senha": "Confirmar Senha",
-        "criar_usuario_btn": "✅ Criar Usuário", "lista_usuarios": "Usuários do Sistema",
-        "nivel": "Nível", "data_criacao": "Criado em", "admin": "Administrador",
+        "criar_usuario_btn": "✅ Criar Usuário",
+        "lista_usuarios": "Usuários do Sistema", "nivel": "Nível",
+        "data_criacao": "Criado em", "admin": "Administrador",
         "usuario_comum": "Usuário", "login_titulo": "🔐 Entrar no SYNEX",
         "erro_login": "Usuário ou senha incorretos", "entrar": "Entrar",
         "padrao_login": "Padrão: synex / 123", "idioma": "Idioma",
         "entrega_titulo": "📦 Entrega Automática — Owlivery & Bots",
-        "webhook_ow": "Webhook para Owlivery", "copiar_webhook": "Copiar Webhook",
+        "webhook_ow": "Webhook para Owlivery",
+        "copiar_webhook": "Copiar Webhook",
         "explicar_webhook": "Cole nas configurações de entrega da Owlivery",
         "exemplo_bot_proprio": "Exemplo — Bot Próprio",
         "codigo_bot_aviso": "Função de entrega pra usar no seu bot",
         "tudo_sincronizado": "Tudo sincronizado: cria de qualquer lado → aparece aqui",
-        "usuario_criado": "Usuário criado!", "senha_nao_confere": "Senhas não conferem",
+        "usuario_criado": "Usuário criado!",
+        "senha_nao_confere": "Senhas não conferem",
         "usuario_existe": "Nome de usuário já existe"
     },
     "en": {
@@ -100,42 +117,50 @@ T = {
         "sair": "🚪 Logout", "bemvindo": "Welcome", "total_chaves": "Total Keys",
         "ativas": "Active", "vs_geradas": "From VS", "ow_geradas": "Owlivery",
         "criar_chave": "➕ Create New Key", "nome_produto": "Product Name",
-        "validade_dias": "Validity (days)", "criar": "✅ Create Key", "lista_chaves": "Key List",
-        "nenhuma_chave": "No keys created yet", "nome": "Name", "chave": "Key",
-        "origem": "Source", "status": "Status", "site": "Website", "vs_origem": "Visual Studio",
-        "ow_origem": "Owlivery", "ativa": "Active", "inativa": "Inactive",
+        "validade_dias": "Validity (days)", "criar": "✅ Create Key",
+        "lista_chaves": "Key List", "nenhuma_chave": "No keys created yet",
+        "nome": "Name", "chave": "Key", "origem": "Source", "status": "Status",
+        "site": "Website", "vs_origem": "Visual Studio", "ow_origem": "Owlivery",
+        "ativa": "Active", "inativa": "Inactive",
         "vs_titulo": "Code Generator — Visual Studio C#",
         "vs_desc": "Generate custom code in KeyAuthApp format",
         "seu_nome_app": "App Name", "seu_owner_id": "Your Owner ID",
         "versao": "Version", "gerar_codigo": "🔄 Generate Code", "copiar": "📋 Copy Code",
-        "instrucoes_uso": "Usage Instructions", "passo1": "1. Paste into your VS project",
+        "instrucoes_uso": "Usage Instructions",
+        "passo1": "1. Paste into your VS project",
         "passo2": "2. Install: Install-Package Newtonsoft.Json",
         "passo3": "3. Login: KeyAuthApp.Login(\"user\", \"pass\")",
         "passo4": "4. Create keys: KeyAuthApp.CreateKey(\"Name\", 30)",
         "gerador_bots": "🤖 Discord Bot Generator", "estilo_bot": "Bot Style",
         "bot_entrega": "Auto Delivery Bot", "bot_comandos": "Commands Bot",
         "bot_personalizado": "Custom", "nome_bot": "Bot Name",
-        "gerar_bot": "🔄 Generate Bot Code", "token_aviso": "Replace with your bot token",
-        "uptime_titulo": "🔄 Keep Bot Online 24/7", "uptime_desc": "Use UptimeRobot to stay awake",
-        "url_monitorar": "URL to Monitor", "copiar_url": "Copy URL", "passos_uptime": "UptimeRobot Steps",
+        "gerar_bot": "🔄 Generate Bot Code",
+        "token_aviso": "Replace with your bot token",
+        "uptime_titulo": "🔄 Keep Bot Online 24/7",
+        "uptime_desc": "Use UptimeRobot to stay awake",
+        "url_monitorar": "URL to Monitor", "copiar_url": "Copy URL",
+        "passos_uptime": "UptimeRobot Steps",
         "passos_uptime1": "1. Go to UptimeRobot.com → free account",
         "passos_uptime2": "2. Add Monitor → HTTP(s)",
         "passos_uptime3": "3. Paste URL → Interval: 5 min",
         "passos_uptime4": "4. Save → ✅ Online 24/7!",
         "criar_usuario": "➕ Create New User", "nome_usuario": "Username",
         "senha": "Password", "confirmar_senha": "Confirm Password",
-        "criar_usuario_btn": "✅ Create User", "lista_usuarios": "System Users",
-        "nivel": "Level", "data_criacao": "Created", "admin": "Admin",
+        "criar_usuario_btn": "✅ Create User",
+        "lista_usuarios": "System Users", "nivel": "Level",
+        "data_criacao": "Created", "admin": "Admin",
         "usuario_comum": "User", "login_titulo": "🔐 Login to SYNEX",
         "erro_login": "Invalid credentials", "entrar": "Login",
         "padrao_login": "Default: synex / 123", "idioma": "Language",
         "entrega_titulo": "📦 Auto Delivery — Owlivery & Bots",
-        "webhook_ow": "Owlivery Webhook", "copiar_webhook": "Copy Webhook",
+        "webhook_ow": "Owlivery Webhook",
+        "copiar_webhook": "Copy Webhook",
         "explicar_webhook": "Paste into Owlivery delivery settings",
         "exemplo_bot_proprio": "Example — Custom Bot",
         "codigo_bot_aviso": "Delivery function for your bot",
         "tudo_sincronizado": "Synced: create anywhere → appears here",
-        "usuario_criado": "User created!", "senha_nao_confere": "Passwords do not match",
+        "usuario_criado": "User created!",
+        "senha_nao_confere": "Passwords do not match",
         "usuario_existe": "Username already exists"
     }
 }
@@ -199,53 +224,49 @@ def gerar_menu(aba):
 
 @app.route("/trocar-idioma/<lang>")
 def trocar_idioma(lang):
-    if lang in ["pt", "en"]: session["idioma"] = lang
+    if lang in ["pt", "en"]:
+        session["idioma"] = lang
     return redirect(request.referrer or "/")
 
 @app.route("/ping")
-def ping(): return "pong"
+def ping():
+    return "pong"
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
     d = request.json
-    return jsonify({"sucesso": True, "usuario": d["usuario"]}) if verificar_senha(d.get("usuario"), d.get("senha")) else (jsonify({"sucesso": False}), 401)
+    if verificar_senha(d.get("usuario"), d.get("senha")):
+        return jsonify({"sucesso": True, "usuario": d["usuario"]})
+    return jsonify({"sucesso": False}), 401
 
 @app.route("/api/criar-chave", methods=["POST"])
 def api_criar_chave():
     d = request.json
-    if not verificar_senha(d.get("usuario"), d.get("senha")): return jsonify({"sucesso": False}), 401
+    if not verificar_senha(d.get("usuario"), d.get("senha")):
+        return jsonify({"sucesso": False}), 401
     chave = criar_chave_sistema(d.get("nome", L("chave")), int(d.get("dias", 30)), origem="visual_studio")
     return jsonify({"sucesso": True, "chave": chave})
 
 @app.route("/api/listar-chaves", methods=["POST"])
 def api_listar():
     d = request.json
-    if not verificar_senha(d.get("usuario"), d.get("senha")): return jsonify({"sucesso": False}), 401
+    if not verificar_senha(d.get("usuario"), d.get("senha")):
+        return jsonify({"sucesso": False}), 401
     return jsonify({"sucesso": True, "chaves": list(DADOS["chaves"].values())})
 
 @app.route("/api/criar-usuario", methods=["POST"])
 def api_novo_usuario():
     d = request.json
-    if not verificar_senha(d.get("admin_usuario"), d.get("admin_senha")): return jsonify({"sucesso": False}), 403
-    if d["novo_usuario"] in DADOS["usuarios"]: return jsonify({"sucesso": False, "erro": L("usuario_existe")}), 400
-    DADOS["usuarios"][d["novo_usuario"]] = {"senha_hash": hash_senha(d["nova_senha"]), "nivel": "usuario", "criado_em": datetime.now().isoformat()}
+    if not verificar_senha(d.get("admin_usuario"), d.get("admin_senha")):
+        return jsonify({"sucesso": False}), 403
+    if d["novo_usuario"] in DADOS["usuarios"]:
+        return jsonify({"sucesso": False, "erro": L("usuario_existe")}), 400
+    DADOS["usuarios"][d["novo_usuario"]] = {
+        "senha_hash": hash_senha(d["nova_senha"]),
+        "nivel": "usuario",
+        "criado_em": datetime.now().isoformat()
+    }
     salvar_dados()
     return jsonify({"sucesso": True})
 
-@app.route("/api/gerar-chave", methods=["POST"])
-def api_owlivery():
-    d = request.json
-    chave = criar_chave_sistema(d.get("produto", "Produto"), int(d.get("dias", 30)), d.get("usuario_id"), "owlivery")
-    DADOS["vendas"].append({
-        "produto": d.get("produto"), "chave": chave, "comprador_id": str(d.get("usuario_id")),
-        "valor": d.get("valor"), "data": datetime.now().isoformat(), "origem": "owlivery"
-    })
-    salvar_dados()
-    return jsonify({"sucesso": True, "chave": chave})
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        if verificar_senha(request.form["usuario"], request.form["senha"]):
-            session["usuario"] = request.form["usuario"]
-            return redirect
+@app.route("/
