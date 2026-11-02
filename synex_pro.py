@@ -3,7 +3,7 @@ import os, json, uuid, secrets, hashlib
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = "synex_hospeda_final_v2_complete"
+app.secret_key = "synex_hospeda_final_completo_v1"
 ARQUIVO_DADOS = "synex_dados_pro.json"
 
 DADOS_INICIAIS = {
@@ -250,3 +250,6 @@ def login():
             session["usuario"] = request.form["usuario"]
             return redirect("/")
         return f"<script>alert('{L('erro_login')}');window.location.href='/login'</script>"
+    return f"""<!DOCTYPE html>
+<html>
+<head><style>{CSS}</
