@@ -250,6 +250,4 @@ def login():
             session["usuario"] = request.form["usuario"]
             return redirect("/")
         return f"<script>alert('{L('erro_login')}');window.location.href='/login'</script>"
-    return f"""<!DOCTYPE html>
-<html>
-<head><style>{CSS}</
+   
