@@ -330,16 +330,13 @@ def chaves():
             <form method="POST">
                 <label>Nome:</label>
                 <input name="nome" placeholder="Plano Premium">
-                <label>Duração:</label>
+                <label>Duração (valor):</label>
                 <input type="number" name="duracao_valor" value="30" min="1">
+                <label>Tipo:</label>
                 <select name="duracao_tipo">
                     <option value="dias">Dias</option>
                     <option value="minutos">Minutos</option>
                     <option value="anos">Anos</option>
                 </select>
                 <label>Limite de usos:</label>
-                <input type="number" name="limite_usos" value="1" min="1">
-                <label><input type="checkbox" name="usar_hwid"> Bloquear por HWID</label>
-                <button class="btn roxo">Gerar Chave</button>
-            </form>
-       
+                <input type="number" name="limite_usos" value="
