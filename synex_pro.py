@@ -1,12 +1,25 @@
-from flask import Flask, request, redirect, url_for, session
-import os, json, uuid, threading, subprocess, time, secrets
+
+from flask import Flask, request, redirect, session
+import os
+import json
+import uuid
+import threading
+import subprocess
+import time
+import secrets
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
-app.secret_key = "synex_pro_2026_final"
 
-USUARIO = "synex"
-SENHA = "123"
+app.secret_key = os.environ.get(
+    "SECRET_KEY",
+    secrets.token_hex(32)
+)
+
+USUARIO = os.environ.get("PAINEL_USUARIO", "synex")
+SENHA = os.environ.get("PAINEL_SENHA", "123")
+
+ARQUIVO_DADOS = "synex_dados_pro.json"
 
 DADOS = {
     "projetos": {},
@@ -18,87 +31,205 @@ DADOS = {
     }
 }
 
+
 def carregar_dados():
-    if os.path.exists("synex_dados_pro.json"):
-        with open("synex_dados_pro.json", "r", encoding="utf-8") as f:
-            return json.load(f)
+    if os.path.exists(ARQUIVO_DADOS):
+        try:
+            with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
+                dados = json.load(f)
+
+            return dados
+
+        except (json.JSONDecodeError, OSError):
+            return DADOS.copy()
+
     return DADOS.copy()
 
+
 def salvar_dados():
-    with open("synex_dados_pro.json", "w", encoding="utf-8") as f:
+    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
         json.dump(DADOS, f, ensure_ascii=False, indent=4)
+
 
 DADOS.update(carregar_dados())
 
+
 class GerenciadorBots:
+
     def __init__(self):
         self.processos = {}
         self.logs = {}
-        threading.Thread(target=self._monitorar, daemon=True).start()
+        self.lock = threading.RLock()
+
+        threading.Thread(
+            target=self._monitorar,
+            daemon=True
+        ).start()
 
     def _monitorar(self):
         while True:
-            for pid, info in list(self.processos.items()):
+            with self.lock:
+                processos = list(self.processos.items())
+
+            for pid, info in processos:
                 proc = info["proc"]
+
                 if proc.poll() is not None and info.get("auto_restart", True):
-                    self._adicionar_log(pid, "🔴 Caiu — reiniciando...")
-                    threading.Thread(target=self._reiniciar, args=(pid,), daemon=True).start()
+                    self._adicionar_log(
+                        pid,
+                        "🔴 Caiu — reiniciando..."
+                    )
+
+                    info["auto_restart"] = False
+
+                    threading.Thread(
+                        target=self._reiniciar,
+                        args=(pid,),
+                        daemon=True
+                    ).start()
+
             time.sleep(5)
 
     def _reiniciar(self, pid):
         if pid not in DADOS["projetos"]:
             return
+
         time.sleep(3)
+
         proj = DADOS["projetos"][pid]
-        self.iniciar(pid, proj["pasta"], proj["comando"])
+
+        self.iniciar(
+            pid,
+            proj["pasta"],
+            proj["comando"]
+        )
 
     def _adicionar_log(self, pid, msg):
-        if pid not in self.logs:
-            self.logs[pid] = []
-        self.logs[pid].append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-        if len(self.logs[pid]) > 300:
-            self.logs[pid].pop(0)
+        with self.lock:
+            if pid not in self.logs:
+                self.logs[pid] = []
+
+            self.logs[pid].append(
+                f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+            )
+
+            if len(self.logs[pid]) > 300:
+                self.logs[pid].pop(0)
+
+    def _ler_saida(self, pid, proc):
+        try:
+            for linha in proc.stdout:
+                linha = linha.rstrip()
+
+                if linha:
+                    self._adicionar_log(pid, linha)
+
+        except Exception as e:
+            self._adicionar_log(
+                pid,
+                f"Erro ao ler logs: {str(e)}"
+            )
 
     def iniciar(self, pid, pasta, comando):
-        if pid in self.processos and self.processos[pid]["proc"].poll() is None:
-            return False
+        with self.lock:
+            if (
+                pid in self.processos
+                and self.processos[pid]["proc"].poll() is None
+            ):
+                return False
+
         try:
             os.makedirs(pasta, exist_ok=True)
+
             proc = subprocess.Popen(
                 comando.split(),
                 cwd=pasta,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True
+                text=True,
+                bufsize=1
             )
-            self.processos[pid] = {"proc": proc, "auto_restart": True}
+
+            with self.lock:
+                self.processos[pid] = {
+                    "proc": proc,
+                    "auto_restart": True
+                }
+
             self._adicionar_log(pid, "✅ BOT ONLINE")
+
+            threading.Thread(
+                target=self._ler_saida,
+                args=(pid, proc),
+                daemon=True
+            ).start()
+
             return True
+
         except Exception as e:
-            self._adicionar_log(pid, f"❌ Erro: {str(e)}")
+            self._adicionar_log(
+                pid,
+                f"❌ Erro: {str(e)}"
+            )
+
             return False
 
     def parar(self, pid):
-        if pid not in self.processos:
-            return False
-        self.processos[pid]["auto_restart"] = False
-        if self.processos[pid]["proc"].poll() is None:
-            self.processos[pid]["proc"].terminate()
+        with self.lock:
+            if pid not in self.processos:
+                return False
+
+            info = self.processos[pid]
+            info["auto_restart"] = False
+            proc = info["proc"]
+
+        if proc.poll() is None:
+            proc.terminate()
+
+        self._adicionar_log(pid, "⏹️ BOT DESLIGADO")
+
         return True
 
     def esta_ativo(self, pid):
-        return pid in self.processos and self.processos[pid]["proc"].poll() is None
+        with self.lock:
+            return (
+                pid in self.processos
+                and self.processos[pid]["proc"].poll() is None
+            )
+
 
 gerenciador = GerenciadorBots()
 
-def criar_chave(nome, duracao_valor, duracao_tipo, limite_usos=1, usar_hwid=False, comprador_id=None):
-    chave = f"SYNEX-{secrets.token_hex(3).upper()}-{secrets.token_hex(3).upper()}-{secrets.token_hex(3).upper()}"
+
+def criar_chave(
+    nome,
+    duracao_valor,
+    duracao_tipo,
+    limite_usos=1,
+    usar_hwid=False,
+    comprador_id=None
+):
+    chave = (
+        f"SYNEX-{secrets.token_hex(3).upper()}-"
+        f"{secrets.token_hex(3).upper()}-"
+        f"{secrets.token_hex(3).upper()}"
+    )
+
     if duracao_tipo == "minutos":
-        expira = datetime.now() + timedelta(minutes=duracao_valor)
+        expira = datetime.now() + timedelta(
+            minutes=duracao_valor
+        )
+
     elif duracao_tipo == "anos":
-        expira = datetime.now() + timedelta(days=duracao_valor * 365)
+        expira = datetime.now() + timedelta(
+            days=duracao_valor * 365
+        )
+
     else:
-        expira = datetime.now() + timedelta(days=duracao_valor)
+        expira = datetime.now() + timedelta(
+            days=duracao_valor
+        )
+
     DADOS["chaves"][chave] = {
         "id": str(uuid.uuid4())[:8],
         "nome": nome,
@@ -114,8 +245,11 @@ def criar_chave(nome, duracao_valor, duracao_tipo, limite_usos=1, usar_hwid=Fals
         "status": "ativa",
         "criada_em": datetime.now().isoformat()
     }
+
     salvar_dados()
+
     return chave
+
 
 CSS = """
 *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
@@ -152,9 +286,12 @@ label{color:var(--texto-fraco);font-weight:500;margin-top:10px;display:block}
 .tabela th{color:var(--texto-fraco);font-weight:600;font-size:0.85rem}
 """
 
+
 def menu(aba_atual):
+
     def ativo(pag):
         return "ativo" if aba_atual == pag else ""
+
     return f'''<div class="sidebar">
         <div class="logo"><span>SYNEX</span> HOSPEDA</div>
         <a href="/" class="{ativo("home")}"><i>📊</i> Painel</a>
@@ -162,6 +299,7 @@ def menu(aba_atual):
         <a href="/chaves" class="{ativo("chaves")}"><i>🔑</i> Gerenciar Chaves</a>
         <a href="/sair" style="color:var(--erro)"><i>🚪</i> Sair</a>
     </div>'''
+
 
 def pagina(corpo, aba="home"):
     return f'''<!DOCTYPE html>
@@ -178,28 +316,40 @@ def pagina(corpo, aba="home"):
 </body>
 </html>'''
 
+
 def logado():
     return 'logado' in session and session['logado']
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+
     if request.method == 'POST':
-        if request.form['usuario'] == USUARIO and request.form['senha'] == SENHA:
+        if (
+            request.form.get('usuario') == USUARIO
+            and request.form.get('senha') == SENHA
+        ):
             session['logado'] = True
             return redirect('/')
-        return '<p style="color:var(--erro);text-align:center;margin-top:40px">❌ Usuário ou senha incorretos</p>'
+
+        return '''
+        <p style="color:#ef4444;text-align:center;margin-top:40px">
+            ❌ Usuário ou senha incorretos
+        </p>
+        '''
+
     return '''<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <title>Login — SYNEX</title>
     <style>
-        body{{background:#05050a;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif}}
-        .caixa{{background:#0f0f1f;padding:50px;border-radius:16px;border:1px solid rgba(121,40,202,0.3);width:100%;max-width:420px}}
-        h1 span{{background:linear-gradient(90deg,#7928ca,#10b981);-webkit-background-clip:text;-webkit-text-fill-color:transparent}}
-        input{{width:100%;padding:15px;margin:10px 0;background:rgba(0,0,0,0.4);border:1px solid #2a2a4a;border-radius:8px;color:white;font-size:1rem}}
-        button{{width:100%;padding:15px;background:linear-gradient(90deg,#7928ca,#10b981);color:white;border:none;border-radius:8px;font-weight:bold;font-size:1.1rem;margin-top:15px;cursor:pointer}}
-        label{{color:#8888aa}}
+        body{background:#05050a;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif}
+        .caixa{background:#0f0f1f;padding:50px;border-radius:16px;border:1px solid rgba(121,40,202,0.3);width:100%;max-width:420px}
+        h1 span{background:linear-gradient(90deg,#7928ca,#10b981);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        input{width:100%;padding:15px;margin:10px 0;background:rgba(0,0,0,0.4);border:1px solid #2a2a4a;border-radius:8px;color:white;font-size:1rem}
+        button{width:100%;padding:15px;background:linear-gradient(90deg,#7928ca,#10b981);color:white;border:none;border-radius:8px;font-weight:bold;font-size:1.1rem;margin-top:15px;cursor:pointer}
+        label{color:#8888aa}
     </style>
 </head>
 <body>
@@ -216,30 +366,65 @@ def login():
 </body>
 </html>'''
 
+
 @app.route('/sair')
 def sair():
     session.clear()
     return redirect('/login')
 
+
 @app.route('/')
 def home():
+
     if not logado():
         return redirect('/login')
+
     total_chaves = len(DADOS["chaves"])
-    ativas = sum(1 for c in DADOS["chaves"].values() if c["status"] == "ativa")
+
+    ativas = sum(
+        1 for c in DADOS["chaves"].values()
+        if c["status"] == "ativa"
+    )
+
     total_bots = len(DADOS["projetos"])
-    bots_on = sum(1 for p in DADOS["projetos"] if gerenciador.esta_ativo(p))
+
+    bots_on = sum(
+        1 for p in DADOS["projetos"]
+        if gerenciador.esta_ativo(p)
+    )
+
     corpo = f'''
         <div class="cabecalho">
             <h2>📊 PAINEL DE CONTROLE</h2>
             <span class="status-bolha">● SISTEMA ONLINE</span>
         </div>
+
         <div class="grid">
-            <div class="grid-card"><h4>🔑 Chaves Criadas</h4><div class="valor">{total_chaves}</div></div>
-            <div class="grid-card"><h4>✅ Ativas</h4><div class="valor" style="color:var(--secundaria)">{ativas}</div></div>
-            <div class="grid-card"><h4>🤖 Bots</h4><div class="valor">{total_bots}</div></div>
-            <div class="grid-card"><h4>🟢 Online</h4><div class="valor" style="color:var(--secundaria)">{bots_on}</div></div>
+            <div class="grid-card">
+                <h4>🔑 Chaves Criadas</h4>
+                <div class="valor">{total_chaves}</div>
+            </div>
+
+            <div class="grid-card">
+                <h4>✅ Ativas</h4>
+                <div class="valor" style="color:var(--secundaria)">
+                    {ativas}
+                </div>
+            </div>
+
+            <div class="grid-card">
+                <h4>🤖 Bots</h4>
+                <div class="valor">{total_bots}</div>
+            </div>
+
+            <div class="grid-card">
+                <h4>🟢 Online</h4>
+                <div class="valor" style="color:var(--secundaria)">
+                    {bots_on}
+                </div>
+            </div>
         </div>
+
         <div class="card">
             <h3>Bem-vindo!</h3>
             <p style="color:var(--texto-fraco);line-height:1.8">
@@ -247,75 +432,155 @@ def home():
             </p>
         </div>
     '''
+
     return pagina(corpo, "home")
+
 
 @app.route('/bots', methods=['GET', 'POST'])
 def bots():
+
     if not logado():
         return redirect('/login')
+
     if request.method == 'POST':
+
         pid = str(uuid.uuid4())[:8]
-        nome = request.form.get('nome', 'Bot Sem Nome')
+
+        nome = request.form.get(
+            'nome',
+            'Bot Sem Nome'
+        )
+
         DADOS["projetos"][pid] = {
             "nome": nome,
             "pasta": f"projetos/{pid}",
             "comando": "python bot.py"
         }
+
         salvar_dados()
+
         return redirect('/bots')
+
     lista = ""
+
     for pid, b in DADOS["projetos"].items():
+
         on = gerenciador.esta_ativo(pid)
+
         status = "✅ ONLINE" if on else "⏹️ DESLIGADO"
-        acao = f'<a href="/bot/ligar/{pid}" class="btn verde">Ligar</a>' if not on else f'<a href="/bot/desligar/{pid}" class="btn vermelho">Desligar</a>'
+
+        acao = (
+            f'<a href="/bot/desligar/{pid}" class="btn vermelho">Desligar</a>'
+            if on else
+            f'<a href="/bot/ligar/{pid}" class="btn verde">Ligar</a>'
+        )
+
         lista += f'''<div style="padding:15px;background:rgba(0,0,0,0.3);border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center">
-            <div><strong>{b["nome"]}</strong><br><small style="color:var(--texto-fraco)">{pid}</small></div>
-            <div style="text-align:right">{status}<br>{acao}</div>
+            <div>
+                <strong>{b["nome"]}</strong><br>
+                <small style="color:var(--texto-fraco)">{pid}</small>
+            </div>
+            <div style="text-align:right">
+                {status}<br>
+                {acao}
+            </div>
         </div>'''
+
     corpo = f'''
-        <div class="cabecalho"><h2>🤖 MEUS BOTS</h2></div>
+        <div class="cabecalho">
+            <h2>🤖 MEUS BOTS</h2>
+        </div>
+
         <div class="card">
             <h3>Adicionar Novo Bot</h3>
+
             <form method="POST">
                 <label>Nome do Bot:</label>
-                <input name="nome" placeholder="Bot de Vendas">
+                <input name="nome" placeholder="Bot de Vendas" required>
+
                 <button class="btn roxo">Adicionar</button>
             </form>
         </div>
-        <div class="card"><h3>Lista ({len(DADOS["projetos"])})</h3>{lista}</div>
+
+        <div class="card">
+            <h3>Lista ({len(DADOS["projetos"])})</h3>
+            {lista if lista else '<p>Nenhum bot cadastrado.</p>'}
+        </div>
     '''
+
     return pagina(corpo, "bots")
+
 
 @app.route('/bot/ligar/<pid>')
 def ligar_bot(pid):
+
     if not logado():
         return redirect('/login')
+
     if pid in DADOS["projetos"]:
-        gerenciador.iniciar(pid, DADOS["projetos"][pid]["pasta"], DADOS["projetos"][pid]["comando"])
+
+        projeto = DADOS["projetos"][pid]
+
+        gerenciador.iniciar(
+            pid,
+            projeto["pasta"],
+            projeto["comando"]
+        )
+
     return redirect('/bots')
+
 
 @app.route('/bot/desligar/<pid>')
 def desligar_bot(pid):
+
     if not logado():
         return redirect('/login')
+
     gerenciador.parar(pid)
+
     return redirect('/bots')
+
 
 @app.route('/chaves', methods=['GET', 'POST'])
 def chaves():
+
     if not logado():
         return redirect('/login')
+
     if request.method == 'POST':
-        criar_chave(
-            nome=request.form.get('nome'),
-            duracao_valor=int(request.form.get('duracao_valor')),
-            duracao_tipo=request.form.get('duracao_tipo'),
-            limite_usos=int(request.form.get('limite_usos', 1)),
-            usar_hwid=request.form.get('usar_hwid') == 'on'
-        )
-        return redirect('/chaves')
+
+        try:
+            nome = request.form.get('nome', '').strip()
+            duracao_valor = int(request.form.get('duracao_valor'))
+            duracao_tipo = request.form.get('duracao_tipo')
+            limite_usos = int(request.form.get('limite_usos', 1))
+
+            if not nome:
+                return redirect('/chaves')
+
+            if duracao_valor < 1 or limite_usos < 1:
+                return redirect('/chaves')
+
+            if duracao_tipo not in ["dias", "minutos", "anos"]:
+                return redirect('/chaves')
+
+            criar_chave(
+                nome=nome,
+                duracao_valor=duracao_valor,
+                duracao_tipo=duracao_tipo,
+                limite_usos=limite_usos,
+                usar_hwid=request.form.get('usar_hwid') == 'on'
+            )
+
+            return redirect('/chaves')
+
+        except (ValueError, TypeError):
+            return redirect('/chaves')
+
     linhas = ""
+
     for chave, dados in DADOS["chaves"].items():
+
         linhas += f'''<tr>
             <td>{dados["nome"]}</td>
             <td><code>{chave[:15]}...</code></td>
@@ -323,19 +588,72 @@ def chaves():
             <td>{dados["usos_feitos"]}/{dados["usos_maximo"]}</td>
             <td><span class="badge ativa">{dados["status"]}</span></td>
         </tr>'''
+
     corpo = f'''
-        <div class="cabecalho"><h2>🔑 GERENCIAR CHAVES</h2></div>
+        <div class="cabecalho">
+            <h2>🔑 GERENCIAR CHAVES</h2>
+        </div>
+
         <div class="card">
             <h3>Criar Nova Chave</h3>
+
             <form method="POST">
                 <label>Nome:</label>
-                <input name="nome" placeholder="Plano Premium">
+                <input name="nome" placeholder="Plano Premium" required>
+
                 <label>Duração (valor):</label>
-                <input type="number" name="duracao_valor" value="30" min="1">
+                <input type="number" name="duracao_valor" value="30" min="1" required>
+
                 <label>Tipo:</label>
                 <select name="duracao_tipo">
                     <option value="dias">Dias</option>
                     <option value="minutos">Minutos</option>
                     <option value="anos">Anos</option>
                 </select>
-                <label>Limite de us
+
+                <label>Limite de usos:</label>
+                <input type="number" name="limite_usos" value="1" min="1" required>
+
+                <label>
+                    <input type="checkbox" name="usar_hwid">
+                    Bloquear por HWID
+                </label>
+
+                <button class="btn roxo">Gerar Chave</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Chaves cadastradas ({len(DADOS["chaves"])})</h3>
+
+            <table class="tabela">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Chave</th>
+                        <th>Duração</th>
+                        <th>Usos</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {linhas if linhas else '<tr><td colspan="5">Nenhuma chave cadastrada.</td></tr>'}
+                </tbody>
+            </table>
+        </div>
+    '''
+
+    return pagina(corpo, "chaves")
+
+
+@app.route('/health')
+def health():
+    return {"status": "ok"}, 200
+
+
+if __name__ == '__main__':
+    app.run(
+        host='0.0.0.0',
+        port=int(os.environ.get('PORT', 5000))
+    )
