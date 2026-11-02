@@ -3,15 +3,14 @@ import re
 import io
 import json
 import threading
-from datetime import datetime
-from flask import Flask, render_template_string
+from flask import Flask
 import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
 # ==============================================
-# INICIALIZAÇÃO
+# CONFIGURAÇÕES
 # ==============================================
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -23,7 +22,7 @@ bot = None
 bot_rodando = False
 
 # ==============================================
-# SEU CÓDIGO ORIGINAL — TUDO EXATAMENTE COMO VOCÊ ENVIOU
+# CONFIGURAÇÕES PADRÃO
 # ==============================================
 DEFAULT = {
     "panel_title": "Central de Atendimento",
@@ -127,6 +126,9 @@ async def dm_user(user_id, text):
     except:
         return False
 
+# ==============================================
+# VIEWS
+# ==============================================
 class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -275,5 +277,4 @@ class TicketActionSelect(discord.ui.Select):
             new_val = "0" if topic_value(channel, "invalid") == "1" else "1"
             await channel.edit(topic=update_topic(channel, invalid=new_val))
             await interaction.response.send_message(
-                "🧾 Marcado como sem pagamento." if new_val == "1" else "🧾 Marcação removida.", ephemeral=True)
-        elif action == "
+                "🧾 Marcado como sem pagamento." if new
