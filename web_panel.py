@@ -17,11 +17,11 @@ bot_lock = threading.Lock()
 
 # ========== PEGAR TOKEN ==========
 def get_token():
-    # Primeiro tenta pegar direto do Render/ambiente
+    # Primeiro do ambiente (Render)
     token = os.getenv("DISCORD_TOKEN")
     if token:
         return token.strip()
-    # Se não tiver, tenta ler do arquivo .env
+    # Depois do arquivo .env
     if ENV_FILE.exists():
         text = ENV_FILE.read_text(encoding="utf-8")
         match = re.search(r"DISCORD_TOKEN\s*=\s*([^\n]+)", text)
@@ -82,11 +82,13 @@ def parar_bot():
     global bot_process
     with bot_lock:
         if bot_process and bot_process.poll() is None:
-            bot_process.terminate()
             try:
+                bot_process.terminate()
                 bot_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 bot_process.kill()
+            except Exception:
+                pass
         bot_process = None
 
 def status_bot():
@@ -98,9 +100,10 @@ def status_bot():
 def ler_logs():
     linhas = []
     if bot_process and bot_process.stdout:
-        for _ in range(25):
+        for _ in range(30):
             linha = bot_process.stdout.readline()
-            if not linha: break
+            if not linha:
+                break
             linhas.append(linha.strip())
     return linhas
 
@@ -172,9 +175,10 @@ PAGINA_HTML = """
         .status.parado{background:rgba(240,71,71,.15);color:#f04747}
         .ok{color:#43b581;margin:6px 0}
         .erro{color:#f04747;margin:6px 0}
-        .caixa-logs{background:#0b0e17;border:1px solid #252a41;border-radius:8px;padding:15px;font-family:monospace;font-size:13px;max-height:320px;overflow-y:auto;margin-top:15px}
+        .caixa-logs{background:#0b0e17;border:1px solid #252a41;border-radius:8px;padding:15px;font-family:monospace;font-size:13px;max-height:320px;overflow-y:auto;margin-top:15px;white-space:pre-wrap}
         .botoes{display:flex;gap:12px;margin:20px 0}
         button{padding:12px 22px;border:none;border-radius:8px;font-weight:bold;cursor:pointer}
+        button:disabled{opacity:0.5;cursor:not-allowed}
         .btn-start{background:#43b581;color:#fff}
         .btn-restart{background:#faa61a;color:#111}
         .btn-kill{background:#f04747;color:#fff}
@@ -215,9 +219,9 @@ PAGINA_HTML = """
                 <h2>💻 Controle</h2>
                 <div class="status" id="console-status">{{ status_atual.upper() }}</div>
                 <div class="botoes">
-                    <button class="btn-start" onclick="startBot()">▶ Start</button>
-                    <button class="btn-restart" onclick="restartBot()">🔄 Restart</button>
-                    <button class="btn-kill" onclick="killBot()">⬛ Kill</button>
+                    <button class="btn-start" id="btn-start" onclick="startBot()">▶ Start</button>
+                    <button class="btn-restart" id="btn-restart" onclick="restartBot()">🔄 Restart</button>
+                    <button class="btn-kill" id="btn-kill" onclick="killBot()">⬛ Kill</button>
                 </div>
                 <h3>📋 Logs do Bot</h3>
                 <div class="caixa-logs" id="logs">Aguardando Start...</div>
@@ -246,21 +250,38 @@ async function salvarToken(){
 }
 
 async function startBot(){
+    document.getElementById('btn-start').disabled = true;
     const res = await fetch('/api/start', {method:'POST'});
     const d = await res.json();
-    if(!d.ok) return alert('CORRIJA PRIMEIRO:\\n' + d.erros.join('\\n'));
+    if(!d.ok){
+        alert('CORRIJA PRIMEIRO:\\n' + d.erros.join('\\n'));
+    }
     atualizar();
+    setTimeout(()=>{document.getElementById('btn-start').disabled = false;}, 2000);
 }
 
-async function restartBot(){ await fetch('/api/restart'); atualizar(); }
-async function killBot(){ await fetch('/api/kill'); atualizar(); }
+async function restartBot(){
+    document.getElementById('btn-restart').disabled = true;
+    await fetch('/api/restart');
+    atualizar();
+    setTimeout(()=>{document.getElementById('btn-restart').disabled = false;}, 2000);
+}
+
+async function killBot(){
+    document.getElementById('btn-kill').disabled = true;
+    await fetch('/api/kill');
+    atualizar();
+    setTimeout(()=>{document.getElementById('btn-kill').disabled = false;}, 2000);
+}
 
 async function atualizar(){
     const d = await (await fetch('/api/status')).json();
     const el = document.getElementById('console-status');
     el.textContent = d.status.toUpperCase();
     el.className = 'status ' + d.status;
-    if(d.logs.length) document.getElementById('logs').innerHTML = d.logs.map(l=>`<div>${l}</div>`).join('');
+    if(d.logs.length){
+        document.getElementById('logs').textContent = d.logs.join('\\n');
+    }
 }
 
 setInterval(atualizar, 2500);
