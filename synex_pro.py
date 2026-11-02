@@ -3,7 +3,7 @@ import re
 import io
 import json
 import threading
-from flask import Flask, render_template_string
+from flask import Flask
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -17,7 +17,6 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 CONFIG_PATH = "config.json"
 
 app = Flask(__name__)
-app.secret_key = "synex_site_2026"
 bot = None
 bot_rodando = False
 
@@ -277,4 +276,4 @@ class TicketActionSelect(discord.ui.Select):
             new_val = "0" if topic_value(channel, "invalid") == "1" else "1"
             await channel.edit(topic=update_topic(channel, invalid=new_val))
             await interaction.response.send_message(
-                "🧾 Marcado como sem pagamento." if new_val == "1" else "🧾 Mar
+                "🧾 Marcado como sem pagamento." if new_val == "1" else "🧾 Marcação removida
