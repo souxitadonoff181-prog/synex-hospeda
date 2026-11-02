@@ -1,6 +1,5 @@
 import os
 import re
-import json
 import subprocess
 import threading
 from pathlib import Path
@@ -44,7 +43,7 @@ def verificar_bot():
 
     token = get_token()
     if not token:
-        erros.append("❌ Token não configurado no .env")
+        erros.append("❌ Token não configurado — adicione a variável DISCORD_TOKEN no Render")
     elif len(token) < 30:
         erros.append("⚠️ Token muito curto — verifique se está correto")
     else:
@@ -104,11 +103,13 @@ def ler_logs():
 def index():
     erros, avisos = verificar_bot()
     token = get_token()
+    status_atual = status_bot()
     return render_template_string(PAGINA_HTML,
-        erros=erros, avisos=avisos,
+        erros=erros,
+        avisos=avisos,
         token_configurado=bool(token),
         token_tamanho=len(token or ""),
-        status=status_bot())
+        status_atual=status_atual)
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
@@ -186,12 +187,18 @@ PAGINA_HTML = """
         <div id="aba-status">
             <div class="card">
                 <h2>🔍 Verificação da Pasta</h2>
-                <div class="status {{status}}">{{status.toUpperCase()}}</div>
-                {%if erros%}<h3 class="erro">❌ Precisa arrumar:</h3>{%for e in erros%}<p class="erro">{{e}}</p>{%endfor%}{%endif%}
-                {%if avisos%}<h3 class="ok">✅ Tudo certo:</h3>{%for a in avisos%}<p class="ok">{{a}}</p>{%endfor%}{%endif%}
+                <div class="status {{ status_atual }}">{{ status_atual.upper() }}</div>
+                {% if erros %}
+                    <h3 class="erro">❌ Precisa arrumar:</h3>
+                    {% for e in erros %}<p class="erro">{{ e }}</p>{% endfor %}
+                {% endif %}
+                {% if avisos %}
+                    <h3 class="ok">✅ Tudo certo:</h3>
+                    {% for a in avisos %}<p class="ok">{{ a }}</p>{% endfor %}
+                {% endif %}
                 <br>
                 <h3>🔑 Token</h3>
-                <input type="password" id="token-input" placeholder="Seu token do bot" value="{{'•'*token_tamanho if token_configurado else ''}}">
+                <input type="password" id="token-input" placeholder="Seu token do bot" value="{{ '•' * token_tamanho if token_configurado else '' }}">
                 <button onclick="salvarToken()">Salvar Token</button>
                 <p id="token-msg"></p>
             </div>
@@ -200,7 +207,7 @@ PAGINA_HTML = """
         <div id="aba-console" class="oculto">
             <div class="card">
                 <h2>💻 Controle</h2>
-                <div class="status" id="console-status">{{status.toUpperCase()}}</div>
+                <div class="status" id="console-status">{{ status_atual.upper() }}</div>
                 <div class="botoes">
                     <button class="btn-start" onclick="startBot()">▶ Start</button>
                     <button class="btn-restart" onclick="restartBot()">🔄 Restart</button>
