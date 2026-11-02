@@ -269,4 +269,21 @@ def api_novo_usuario():
     salvar_dados()
     return jsonify({"sucesso": True})
 
-@app.route("/
+@app.route("/api/gerar-chave", methods=["POST"])
+def api_owlivery():
+    d = request.json
+    chave = criar_chave_sistema(
+        d.get("produto", "Produto"),
+        int(d.get("dias", 30)),
+        d.get("usuario_id"),
+        "owlivery"
+    )
+    DADOS["vendas"].append({
+        "produto": d.get("produto"),
+        "chave": chave,
+        "comprador_id": str(d.get("usuario_id")),
+        "valor": d.get("valor"),
+        "data": datetime.now().isoformat(),
+        "origem": "owlivery"
+    })
+    salvar_dados
