@@ -339,4 +339,5 @@ def chaves():
                     <option value="anos">Anos</option>
                 </select>
                 <label>Limite de usos:</label>
-                <input type="number" name="limite_usos" value="
+                <input type="number" name="limite_usos" value="1" min="1">
+                <label
