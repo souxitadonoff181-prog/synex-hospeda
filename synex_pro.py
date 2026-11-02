@@ -3,7 +3,7 @@ import re
 import io
 import json
 import threading
-from flask import Flask
+from flask import Flask, render_template_string
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -275,6 +275,4 @@ class TicketActionSelect(discord.ui.Select):
             await interaction.response.send_modal(MemberModal(action == "add"))
         elif action == "invalidate":
             new_val = "0" if topic_value(channel, "invalid") == "1" else "1"
-            await channel.edit(topic=update_topic(channel, invalid=new_val))
-            await interaction.response.send_message(
-                "🧾 Marcado como sem pagamento." if new
+            await channel.edit(t
