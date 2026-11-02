@@ -194,12 +194,12 @@ def login():
     <meta charset="UTF-8">
     <title>Login — SYNEX</title>
     <style>
-        body{background:#05050a;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif}
-        .caixa{background:#0f0f1f;padding:50px;border-radius:16px;border:1px solid rgba(121,40,202,0.3);width:100%;max-width:420px}
-        h1 span{background:linear-gradient(90deg,#7928ca,#10b981);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-        input{width:100%;padding:15px;margin:10px 0;background:rgba(0,0,0,0.4);border:1px solid #2a2a4a;border-radius:8px;color:white;font-size:1rem}
-        button{width:100%;padding:15px;background:linear-gradient(90deg,#7928ca,#10b981);color:white;border:none;border-radius:8px;font-weight:bold;font-size:1.1rem;margin-top:15px;cursor:pointer}
-        label{color:#8888aa}
+        body{{background:#05050a;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif}}
+        .caixa{{background:#0f0f1f;padding:50px;border-radius:16px;border:1px solid rgba(121,40,202,0.3);width:100%;max-width:420px}}
+        h1 span{{background:linear-gradient(90deg,#7928ca,#10b981);-webkit-background-clip:text;-webkit-text-fill-color:transparent}}
+        input{{width:100%;padding:15px;margin:10px 0;background:rgba(0,0,0,0.4);border:1px solid #2a2a4a;border-radius:8px;color:white;font-size:1rem}}
+        button{{width:100%;padding:15px;background:linear-gradient(90deg,#7928ca,#10b981);color:white;border:none;border-radius:8px;font-weight:bold;font-size:1.1rem;margin-top:15px;cursor:pointer}}
+        label{{color:#8888aa}}
     </style>
 </head>
 <body>
@@ -338,6 +338,4 @@ def chaves():
                     <option value="minutos">Minutos</option>
                     <option value="anos">Anos</option>
                 </select>
-                <label>Limite de usos:</label>
-                <input type="number" name="limite_usos" value="1" min="1">
-                <label><input type="checkbox" name="usar_hwid"> Bloquear por HWID
+                <label>Limite de us
