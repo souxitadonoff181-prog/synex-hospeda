@@ -1,279 +1,290 @@
 import os
 import re
-import io
 import json
+import subprocess
 import threading
-from flask import Flask
-import discord
-from discord import app_commands
-from discord.ext import commands
-from dotenv import load_dotenv
+from pathlib import Path
+from flask import Flask, render_template_string, request, jsonify
 
-# ==============================================
-# CONFIGURAÇÕES
-# ==============================================
-load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
-CONFIG_PATH = "config.json"
+BASE_DIR = Path(__file__).parent
+BOT_FILE = BASE_DIR / "synex_pro.py"
+ENV_FILE = BASE_DIR / ".env"
+CONFIG_FILE = BASE_DIR / "config.json"
 
 app = Flask(__name__)
-bot = None
-bot_rodando = False
+app.secret_key = "synex_panel_2026"
 
-# ==============================================
-# CONFIGURAÇÕES PADRÃO
-# ==============================================
-DEFAULT = {
-    "panel_title": "Central de Atendimento",
-    "panel_description": "🎟️ **CENTRAL DE ATENDIMENTO — TICKET**\n\nOlá! Seja bem-vindo(a) ao nosso suporte! 👋\n\n📩 **Abra um ticket para receber atendimento personalizado.**\nNossa equipe está pronta para ajudar você com dúvidas, compras, suporte técnico ou qualquer outro assunto relacionado aos nossos serviços.\n\n⚠️ **Regras de atendimento:**\n• Explique sua solicitação com clareza.\n• Envie prints ou comprovantes, se necessário.\n• Aguarde um membro da equipe responder.\n• Evite marcar a equipe repetidamente.\n\n✅ Estamos aqui para ajudar!\nObrigado pela preferência e pela confiança. 💙\n\n🔒 Mantenha o ticket aberto até que seu atendimento seja concluído.",
-    "confirm_title": "Antes de abrir um ticket...",
-    "confirm_description": "Antes de continuar, confira os termos da loja e as informações do produto.\nGeralmente elas já trazem tudo o que você precisa saber.\n\nSe ainda ficou com alguma dúvida, é só confirmar abaixo que a equipe te atende.",
-    "ticket_title": "Suporte global",
-    "ticket_description": "Olá {user}, seja bem-vindo(a) ao seu atendimento!\n\nNossa equipe foi notificada e irá atendê-lo em breve.\nExplique sua solicitação com detalhes e envie imagens, se necessário.\n\n🔒 **Mantenha este ticket aberto até a conclusão do atendimento.**",
-    "redeem_title": "Resgatar item",
-    "redeem_description": "Olá {user}, este é seu ticket para resgate de item!\n\nInforme qual item deseja resgatar e envie as informações necessárias.\nNossa equipe irá verificar sua solicitação.",
-    "categories": {"suporte": None, "resgatar": None},
-    "staff_roles": [],
-    "log_channel": None,
-    "welcome_channel": None,
-    "welcome_role": None,
-    "welcome_message": "Salve {mention}! Seja muito bem-vindo(a) à **Synex Store**. Aproveite tudo o que temos a oferecer! 💙",
-    "ticket_count": 0
+bot_process = None
+bot_lock = threading.Lock()
+
+# ========== PEGAR TOKEN ==========
+def get_token():
+    if not ENV_FILE.exists():
+        return None
+    text = ENV_FILE.read_text(encoding="utf-8")
+    match = re.search(r"DISCORD_TOKEN\s*=\s*([^\n]+)", text)
+    return match.group(1).strip() if match else None
+
+# ========== VALIDAR TUDO ==========
+def verificar_tudo():
+    erros = []
+    avisos = []
+
+    if not BOT_FILE.exists():
+        erros.append("❌ Arquivo synex_pro.py não encontrado")
+    else:
+        codigo = BOT_FILE.read_text(encoding="utf-8")
+        if codigo.count("(") != codigo.count(")"):
+            erros.append("❌ Erro de sintaxe: parênteses não fechados")
+        elif codigo.count('"') % 2 != 0 or codigo.count("'") % 2 != 0:
+            erros.append("❌ Erro de sintaxe: aspas não fechadas")
+        else:
+            avisos.append("✅ Código do bot está correto")
+
+    token = get_token()
+    if not token:
+        erros.append("❌ Token não encontrado no .env")
+    elif len(token) < 30:
+        erros.append("❌ Token muito curto — provavelmente errado")
+    else:
+        avisos.append("✅ Token configurado")
+
+    try:
+        import flask, discord
+        avisos.append("✅ Todas as dependências estão instaladas")
+    except ImportError as e:
+        erros.append(f"❌ Falta instalar: {e.name}")
+
+    avisos.append("✅ config.json será criado automaticamente")
+    return erros, avisos
+
+# ========== CONTROLE DO BOT ==========
+def rodar_bot():
+    global bot_process
+    with bot_lock:
+        parar_bot()
+        bot_process = subprocess.Popen(
+            ["python", str(BOT_FILE)],
+            cwd=str(BASE_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace"
+        )
+
+def parar_bot():
+    global bot_process
+    with bot_lock:
+        if bot_process and bot_process.poll() is None:
+            bot_process.terminate()
+            try:
+                bot_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                bot_process.kill()
+        bot_process = None
+
+def status_bot():
+    with bot_lock:
+        if not bot_process:
+            return "parado"
+        return "rodando" if bot_process.poll() is None else "parado"
+
+def ler_logs():
+    linhas = []
+    if bot_process and bot_process.stdout:
+        for _ in range(25):
+            linha = bot_process.stdout.readline()
+            if not linha: break
+            linhas.append(linha.strip())
+    return linhas
+
+# ========== ROTAS DO SITE ==========
+@app.route("/")
+def index():
+    erros, avisos = verificar_tudo()
+    token = get_token()
+    return render_template_string(PAGINA_HTML,
+        erros=erros, avisos=avisos,
+        token_configurado=bool(token),
+        token_tamanho=len(token or ""),
+        status=status_bot())
+
+@app.route("/api/start", methods=["POST"])
+def api_start():
+    erros, avisos = verificar_tudo()
+    if erros:
+        return jsonify({"ok": False, "erros": erros})
+    threading.Thread(target=rodar_bot, daemon=True).start()
+    return jsonify({"ok": True, "msg": "Bot iniciado com sucesso!"})
+
+@app.route("/api/restart", methods=["POST"])
+def api_restart():
+    erros, _ = verificar_tudo()
+    if erros:
+        return jsonify({"ok": False, "erros": erros})
+    threading.Thread(target=rodar_bot, daemon=True).start()
+    return jsonify({"ok": True, "msg": "Reiniciando..."})
+
+@app.route("/api/kill", methods=["POST"])
+def api_kill():
+    parar_bot()
+    return jsonify({"ok": True, "msg": "Bot parado"})
+
+@app.route("/api/status")
+def api_status():
+    return jsonify({"status": status_bot(), "logs": ler_logs()})
+
+@app.route("/api/salvar-token", methods=["POST"])
+def salvar_token():
+    token = request.json.get("token", "").strip()
+    if not token:
+        return jsonify({"ok": False, "msg": "Token vazio!"})
+    ENV_FILE.write_text(f"DISCORD_TOKEN={token}\n", encoding="utf-8")
+    return jsonify({"ok": True, "msg": "Token salvo ✅"})
+
+# ========== INTERFACE DO SITE ==========
+PAGINA_HTML = """
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synex — Painel do Bot</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',sans-serif}
+        body{display:flex;background:#0b0e17;color:#e6e6e6;min-height:100vh}
+        aside{width:250px;background:#141828;border-right:1px solid #252a41;padding:20px 0;position:fixed;height:100vh}
+        aside h2{font-size:19px;padding:0 20px 25px;color:#7289da}
+        .btn-menu{display:block;width:100%;text-align:left;background:transparent;border:none;color:#a0a0b5;padding:15px 20px;cursor:pointer;font-size:15px;transition:.2s}
+        .btn-menu:hover,.btn-menu.ativo{background:#1e2338;color:#fff;border-left:3px solid #7289da}
+        .conteudo{margin-left:250px;flex:1;padding:30px}
+        .card{background:#141828;border-radius:12px;padding:25px;margin-bottom:20px;border:1px solid #252a41}
+        .status{display:inline-flex;align-items:center;gap:8px;padding:7px 18px;border-radius:25px;font-weight:bold;margin-bottom:15px;font-size:14px}
+        .status.rodando{background:rgba(67,181,129,.15);color:#43b581}
+        .status.parado{background:rgba(240,71,71,.15);color:#f04747}
+        .ok{color:#43b581;margin:6px 0}
+        .erro{color:#f04747;margin:6px 0}
+        .aviso{color:#faa61a;margin:6px 0}
+        .caixa-logs{background:#0b0e17;border:1px solid #252a41;border-radius:8px;padding:15px;font-family:monospace;font-size:13px;max-height:320px;overflow-y:auto;margin-top:15px;line-height:1.6}
+        .botoes{display:flex;gap:12px;margin:20px 0}
+        button{padding:12px 22px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:14px;transition:.2s}
+        button:disabled{opacity:.4;cursor:not-allowed}
+        .btn-start{background:#43b581;color:#fff}
+        .btn-restart{background:#faa61a;color:#111}
+        .btn-kill{background:#f04747;color:#fff}
+        input{width:100%;padding:14px;background:#0b0e17;border:1px solid #252a41;border-radius:8px;color:#fff;margin:12px 0;font-size:14px}
+        .oculto{display:none}
+        h2{margin-bottom:10px}
+    </style>
+</head>
+<body>
+    <aside>
+        <h2>⚙️ Synex Bot</h2>
+        <button class="btn-menu ativo" onclick="trocarAba('status')">📊 Verificação</button>
+        <button class="btn-menu" onclick="trocarAba('console')">💻 Console</button>
+    </aside>
+
+    <div class="conteudo">
+        <!-- ABA STATUS -->
+        <div id="aba-status">
+            <div class="card">
+                <h2>🔍 Verificação do Sistema</h2>
+                <div class="status {{status}}">{{status.toUpperCase()}}</div>
+                
+                {%if erros%}
+                    <h3 style="color:#f04747;margin:15px 0 8px">❌ Erros:</h3>
+                    {%for e in erros%}<p class="erro">{{e}}</p>{%endfor%}
+                {%endif%}
+                
+                {%if avisos%}
+                    <h3 style="color:#43b581;margin:15px 0 8px">✅ Tudo certo:</h3>
+                    {%for a in avisos%}<p class="ok">{{a}}</p>{%endfor%}
+                {%endif%}
+
+                <h3 style="margin-top:25px">🔑 Token do Bot</h3>
+                <input type="password" id="campo-token" placeholder="Cole seu token aqui" value="{{'•'*token_tamanho if token_configurado else ''}}">
+                <button onclick="salvarToken()">Salvar Token</button>
+                <p id="resposta-token" style="margin-top:10px"></p>
+            </div>
+        </div>
+
+        <!-- ABA CONSOLE -->
+        <div id="aba-console" class="oculto">
+            <div class="card">
+                <h2>💻 Controle do Bot</h2>
+                <div class="status" id="indicador-status">{{status.toUpperCase()}}</div>
+                
+                <div class="botoes">
+                    <button class="btn-start" onclick="iniciarBot()">▶ Start</button>
+                    <button class="btn-restart" onclick="reiniciarBot()">🔄 Restart</button>
+                    <button class="btn-kill" onclick="pararBot()">⬛ Kill</button>
+                </div>
+
+                <h3>📋 Logs em tempo real</h3>
+                <div class="caixa-logs" id="caixa-logs">Clique em Start para rodar o bot...</div>
+            </div>
+        </div>
+    </div>
+
+<script>
+function trocarAba(nome){
+    document.querySelectorAll('.btn-menu').forEach(b=>b.classList.remove('ativo'));
+    event.target.classList.add('ativo');
+    document.querySelectorAll('[id^=aba-]').forEach(d=>d.classList.add('oculto'));
+    document.getElementById('aba-'+nome).classList.remove('oculto');
 }
 
-def load_config():
-    if not os.path.isfile(CONFIG_PATH):
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(DEFAULT, f, ensure_ascii=False, indent=4)
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            saved = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        saved = {}
-    data = DEFAULT.copy()
-    data.update(saved)
-    data["categories"] = {**DEFAULT["categories"], **saved.get("categories", {})}
-    return data
+async function salvarToken(){
+    const token = document.getElementById('campo-token').value.trim();
+    const res = await fetch('/api/salvar-token', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({token})
+    });
+    const d = await res.json();
+    const p = document.getElementById('resposta-token');
+    p.textContent = d.msg;
+    p.className = d.ok ? 'ok' : 'erro';
+    setTimeout(()=>location.reload(), 1200);
+}
 
-cfg = load_config()
+async function iniciarBot(){
+    const res = await fetch('/api/start', {method:'POST'});
+    const d = await res.json();
+    if(!d.ok){
+        alert('CORRIJA PRIMEIRO:\n' + d.erros.join('\n'));
+    }
+    await atualizarTudo();
+}
 
-def save_config():
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=4)
+async function reiniciarBot(){
+    await fetch('/api/restart', {method:'POST'});
+    await atualizarTudo();
+}
 
-def is_staff(member: discord.Member) -> bool:
-    if member.guild_permissions.administrator or member.guild_permissions.manage_channels:
-        return True
-    allowed = set(cfg.get("staff_roles", []))
-    return any(role.id in allowed for role in getattr(member, "roles", []))
+async function pararBot(){
+    await fetch('/api/kill', {method:'POST'});
+    await atualizarTudo();
+}
 
-def ticket_owner(channel):
-    match = re.search(r"owner=(\d+)", channel.topic or "")
-    return int(match.group(1)) if match else None
+async function atualizarTudo(){
+    const res = await fetch('/api/status');
+    const d = await res.json();
+    const el = document.getElementById('indicador-status');
+    el.textContent = d.status.toUpperCase();
+    el.className = 'status ' + d.status;
+    if(d.logs.length){
+        document.getElementById('caixa-logs').innerHTML = d.logs.map(l=>`<div>${l}</div>`).join('');
+    }
+}
 
-def ticket_kind(channel):
-    match = re.search(r"kind=(suporte|resgatar)", channel.topic or "")
-    return match.group(1) if match else None
+setInterval(atualizarTudo, 2500);
+</script>
+</body>
+</html>
+"""
 
-def topic_value(channel, key, default="0"):
-    match = re.search(rf"(?:^|;){re.escape(key)}=([^;]+)", channel.topic or "")
-    return match.group(1) if match else default
-
-def update_topic(channel, **values):
-    parts = {}
-    for item in (channel.topic or "").split(";"):
-        if "=" in item:
-            k, v = item.split("=", 1)
-            parts[k] = v
-    parts.update({k: str(v) for k, v in values.items()})
-    return ";".join(f"{k}={v}" for k, v in parts.items())
-
-async def send_log(guild, text):
-    channel_id = cfg.get("log_channel")
-    channel = guild.get_channel(channel_id) if channel_id else None
-    if channel:
-        try:
-            await channel.send(text)
-        except discord.HTTPException:
-            pass
-
-async def transcript_file(channel: discord.TextChannel):
-    rows = []
-    async for msg in channel.history(limit=None, oldest_first=True):
-        stamp = msg.created_at.strftime("%d/%m/%Y %H:%M:%S UTC")
-        content = msg.clean_content or ""
-        if msg.attachments:
-            content += " | Anexos: " + ", ".join(a.url for a in msg.attachments)
-        if msg.embeds:
-            content += " | [Mensagem com embed]"
-        rows.append(f"[{stamp}] {msg.author} ({msg.author.id}): {content}")
-    text = "\n".join(rows) if rows else "Nenhuma mensagem registrada."
-    return discord.File(io.BytesIO(text.encode("utf-8")), filename=f"transcript-{channel.name}.txt")
-
-async def get_user(user_id):
-    try:
-        return await bot.fetch_user(user_id)
-    except (discord.NotFound, discord.HTTPException):
-        return None
-
-async def dm_user(user_id, text):
-    try:
-        user = await get_user(user_id)
-        if user:
-            await user.send(text)
-            return True
-    except:
-        return False
-
-# ==============================================
-# VIEWS
-# ==============================================
-class TicketPanelView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(TicketSelect())
-
-class TicketSelect(discord.ui.Select):
-    def __init__(self):
-        options = [
-            discord.SelectOption(label="Suporte global", value="suporte",
-                                 description="Dúvidas, compras e suporte técnico", emoji="📩"),
-            discord.SelectOption(label="Resgatar item", value="resgatar",
-                                 description="Solicitar o resgate de um item", emoji="🎁")
-        ]
-        super().__init__(placeholder="Selecione uma opção de atendimento",
-                         min_values=1, max_values=1, options=options,
-                         custom_id="synex:panel:select")
-
-    async def callback(self, interaction: discord.Interaction):
-        embed = discord.Embed(title=cfg["confirm_title"],
-                              description=cfg["confirm_description"],
-                              color=discord.Color.blurple())
-        await interaction.response.send_message(embed=embed,
-                                                view=ConfirmView(self.values[0]),
-                                                ephemeral=True)
-
-class ConfirmView(discord.ui.View):
-    def __init__(self, kind):
-        super().__init__(timeout=300)
-        self.kind = kind
-
-    @discord.ui.button(label="Abrir ticket mesmo assim", style=discord.ButtonStyle.success,
-                       emoji="✔", custom_id="synex:confirm:open")
-    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        if guild is None:
-            return await interaction.response.send_message("Use este botão em um servidor.", ephemeral=True)
-
-        already = next((c for c in guild.text_channels
-                        if ticket_owner(c) == interaction.user.id and ticket_kind(c) == self.kind), None)
-        if already:
-            return await interaction.response.send_message(
-                f"Você já tem um ticket aberto: {already.mention}", ephemeral=True)
-
-        category_id = cfg["categories"].get(self.kind)
-        category = guild.get_channel(category_id) if category_id else None
-        if not isinstance(category, discord.CategoryChannel):
-            category = None
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True,
-                read_message_history=True, attach_files=True, embed_links=True)
-        }
-        if guild.me:
-            overwrites[guild.me] = discord.PermissionOverwrite(view_channel=True, send_messages=True,
-                read_message_history=True, manage_channels=True)
-        for role_id in cfg.get("staff_roles", []):
-            role = guild.get_role(role_id)
-            if role:
-                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True,
-                    read_message_history=True, manage_channels=True)
-
-        cfg["ticket_count"] = int(cfg.get("ticket_count", 0)) + 1
-        save_config()
-        prefix = "suporte" if self.kind == "suporte" else "resgate"
-        safe_user = re.sub(r"[^a-z0-9-]", "-", interaction.user.name.lower()).strip("-")[:35] or "usuario"
-        name = f"{prefix}-{safe_user}-{cfg['ticket_count']:04d}"
-        topic = f"owner={interaction.user.id};kind={self.kind};claimed=0;invalid=0"
-        try:
-            channel = await guild.create_text_channel(name=name, category=category,
-                overwrites=overwrites, topic=topic, reason=f"Ticket aberto por {interaction.user}")
-        except discord.Forbidden:
-            return await interaction.response.send_message(
-                "Não consegui criar o canal. Dê ao bot a permissão **Gerenciar canais**.", ephemeral=True)
-
-        if self.kind == "suporte":
-            title, description = cfg["ticket_title"], cfg["ticket_description"]
-        else:
-            title, description = cfg["redeem_title"], cfg["redeem_description"]
-        description = description.replace("{user}", interaction.user.mention)
-        embed = discord.Embed(title=title, description=description, color=discord.Color.blurple())
-        embed.set_footer(text=f"Synex Store • Ticket #{cfg['ticket_count']}")
-        staff_tags = " ".join(f"<@&{rid}>" for rid in cfg["staff_roles"] if guild.get_role(rid))
-        await channel.send(content=f"{interaction.user.mention} {staff_tags}".strip(),
-                           embed=embed, view=TicketActionsView())
-        await interaction.response.edit_message(content=f"✅ Ticket criado: {channel.mention}",
-                                                embed=None, view=None)
-        await send_log(guild, f"🎫 Ticket aberto: {channel.mention} • {interaction.user.mention} • {self.kind}")
-
-    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary, custom_id="synex:confirm:cancel")
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Abertura cancelada.", embed=None, view=None)
-
-class TicketActionsView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(TicketActionSelect())
-
-class TicketActionSelect(discord.ui.Select):
-    def __init__(self):
-        opts = [
-            discord.SelectOption(label="Assumir ticket", description="Você passa a atender este ticket", value="claim", emoji="✅"),
-            discord.SelectOption(label="Assumir e remover outros staff", description="Assume e oculta dos demais", value="claim_exclusive", emoji="👥"),
-            discord.SelectOption(label="Notificar usuário", description="Envia mensagem privada", value="notify", emoji="💬"),
-            discord.SelectOption(label="Renomear ticket", description="Altera o nome do canal", value="rename", emoji="📋"),
-            discord.SelectOption(label="Adicionar membro", description="Adiciona alguém ao atendimento", value="add", emoji="➕"),
-            discord.SelectOption(label="Remover membro", description="Remove alguém do atendimento", value="remove", emoji="🗑️"),
-            discord.SelectOption(label="Invalidar valor do ticket", description="Marca sem pagamento", value="invalidate", emoji="🧾"),
-            discord.SelectOption(label="Fechar ticket", description="Encerra e envia transcript", value="close", emoji="❌")
-        ]
-        super().__init__(placeholder="Selecione uma ação", min_values=1, max_values=1,
-                         options=opts, custom_id="synex:ticket:actions")
-
-    async def callback(self, interaction: discord.Interaction):
-        channel = interaction.channel
-        if not isinstance(channel, discord.TextChannel) or ticket_owner(channel) is None:
-            return await interaction.response.send_message("Este canal não é um ticket.", ephemeral=True)
-        action = self.values[0]
-        staff = is_staff(interaction.user)
-        if action in {"claim", "claim_exclusive", "notify", "rename", "add", "remove", "invalidate", "close"} and not staff:
-            return await interaction.response.send_message("Somente a equipe pode usar esta ação.", ephemeral=True)
-
-        owner_id = ticket_owner(channel)
-        if action in {"claim", "claim_exclusive"}:
-            if topic_value(channel, "claimed") != "0":
-                return await interaction.response.send_message("Este ticket já foi assumido.", ephemeral=True)
-            await channel.edit(topic=update_topic(channel, claimed=interaction.user.id))
-            if action == "claim_exclusive":
-                for rid in cfg["staff_roles"]:
-                    role = interaction.guild.get_role(rid)
-                    if role and role not in interaction.user.roles:
-                        await channel.set_permissions(role, view_channel=False)
-            await interaction.response.send_message(f"✅ {interaction.user.mention} assumiu este ticket.")
-            sent = await dm_user(owner_id, f"👋 Seu ticket **{channel.name}** foi assumido por **{interaction.user}**.")
-            if not sent:
-                await channel.send("⚠️ Não foi possível enviar DM ao usuário.")
-            await send_log(interaction.guild, f"🙋 {interaction.user.mention} assumiu {channel.mention}")
-        elif action == "notify":
-            sent = await dm_user(owner_id, f"💬 Atualização no ticket: {channel.jump_url}")
-            await interaction.response.send_message("✅ Usuário notificado." if sent else "Não consegui enviar DM.", ephemeral=True)
-        elif action == "rename":
-            await interaction.response.send_modal(RenameModal())
-        elif action in {"add", "remove"}:
-            await interaction.response.send_modal(MemberModal(action == "add"))
-        elif action == "invalidate":
-            new_val = "0" if topic_value(channel, "invalid") == "1" else "1"
-            await channel.edit(topic=update_topic(channel, invalid=new_val))
-            await interaction.response.send_message(
-                "🧾 Marcado como sem pagamento." if new_val == "1" else "🧾 Marcação removida
+if __name__ == "__main__":
+    print("🚀 Painel rodando — acesse: http://localhost:8080")
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
